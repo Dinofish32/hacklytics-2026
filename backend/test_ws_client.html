@@ -41,8 +41,7 @@
     function appendCaption(data) {
       try {
         const o = typeof data === 'string' ? JSON.parse(data) : data;
-        if (o.type !== 'caption') return;
-        const line = `[${o.caption_type}] ${o.text} (tone: ${o.tone}, vol: ${(o.volume * 100).toFixed(0)}%)\n`;
+        const line = `${o.text} (tone: ${o.tone}, vol: ${(o.volume * 100).toFixed(0)}%)\n`;
         captionsEl.textContent += line;
         captionsEl.scrollTop = captionsEl.scrollHeight;
       } catch (e) {

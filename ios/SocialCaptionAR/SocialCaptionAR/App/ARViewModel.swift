@@ -13,33 +13,30 @@ import Combine
 @MainActor
 final class ARViewModel: ObservableObject {
 
-    // MARK: - Published UI state
     @Published var faces: [TrackedFace] = []
     @Published var activeFaceId: UUID? = nil
-
     @Published var latestCaption: CaptionBubbleState? = nil
-
     @Published var wsStatus: String = "Disconnected"
-    @Published var isMirrored: Bool = true // set true if you later switch to front camera
+    @Published var isMirrored: Bool = true
 
-    // MARK: - Core components
+    // NEW: publish pose so debug overlay can render skeleton/arm boxes
+    @Published var poseBodies: [VisionPoseTracker.BodyPose] = []
+    @Published var poseHandPoints: [CGPoint] = []
+
     let camera = CameraManager()
 
     private let faceTracker = VisionFaceTracker()
+    private let poseTracker = VisionPoseTracker()
     private let idAssigner = FaceIDAssigner()
+    private let speakerDetector = MotionSpeakerDetector()
     private let wsClient = WebSocketClient()
 
-    // Buffer of active-speaker decisions to handle caption latency
-    private var speakerHistory = RingBuffer<SpeakerSample>(capacity: 90) // ~3s at 30fps
-
-    // Tunables
-    private let anchorLatencySeconds: TimeInterval = 0.40 // anchor captions to who was active ~400ms ago
-
-    // Default WS URL (change to your Mac IP)
-    // Example: ws://192.168.1.23:8000/ws
+    private var speakerHistory = RingBuffer<SpeakerSample>(capacity: 90)
+    private let anchorLatencySeconds: TimeInterval = 0.40
     @Published var wsURLString: String = "ws://127.0.0.1:8000/ws"
 
-    // MARK: - Lifecycle
+    // cached pose (so face + pose don’t have to finish same moment)
+    private var latestPose: VisionPoseTracker.Output = .init(bodies: [], handPoints: [])
 
     func start() async {
         await camera.start()
@@ -73,37 +70,49 @@ final class ARViewModel: ObservableObject {
         wsClient.connect(url: url)
     }
 
-    // MARK: - Frame processing (Vision → faces + temporary active-face)
-
     private func handleFrame(pixelBuffer: CVPixelBuffer) {
+        // Update pose cache (and publish for debug)
+        poseTracker.processFrame(pixelBuffer: pixelBuffer) { [weak self] out in
+            guard let self else { return }
+            self.latestPose = out
+            Task { @MainActor in
+                self.poseBodies = out.bodies
+                self.poseHandPoints = out.handPoints
+            }
+        }
+
+        // Update faces + active speaker
         faceTracker.processFrame(pixelBuffer: pixelBuffer) { [weak self] detected in
             guard let self else { return }
 
             Task { @MainActor in
                 let now = Date().timeIntervalSince1970
-
-                // Stable face IDs
                 let tracked = self.idAssigner.assignIDs(to: detected, now: now)
                 self.faces = tracked
 
-                // TEMP: choose active face as the largest face box (good enough to wire UI)
-                self.activeFaceId = tracked
-                    .max(by: { $0.visionBoundingBox.width < $1.visionBoundingBox.width })?
-                    .id
+                let out = self.speakerDetector.update(
+                    faces: tracked,
+                    bodies: self.latestPose.bodies,
+                    now: now
+                )
 
-                // Keep history for caption anchoring
+                if let id = out.activeFaceId {
+                    self.activeFaceId = id
+                } else if let biggest = tracked.max(by: {
+                    ($0.visionBoundingBox.width * $0.visionBoundingBox.height) <
+                    ($1.visionBoundingBox.width * $1.visionBoundingBox.height)
+                })?.id {
+                    self.activeFaceId = biggest
+                }
+
                 self.speakerHistory.push(SpeakerSample(time: now, faceId: self.activeFaceId))
             }
         }
     }
 
-    // MARK: - WS captions → anchor under face
-
     private func handleCaptionEvent(_ ev: CaptionEvent) {
         let now = Date().timeIntervalSince1970
         let anchorTime = now - anchorLatencySeconds
-
-        // Face to anchor caption under: from ~400ms ago
         let anchorFaceId = speakerHistory.closest(to: anchorTime)?.faceId ?? self.activeFaceId
 
         self.latestCaption = CaptionBubbleState(
