@@ -22,9 +22,14 @@ struct CameraPreviewView: UIViewRepresentable {
         // Keep aspectFill so overlays stay aligned with your current math
         v.videoPreviewLayer.videoGravity = .resizeAspectFill
 
-        if let conn = v.videoPreviewLayer.connection, conn.isVideoOrientationSupported {
-            conn.videoOrientation = desiredOrientation
-            if conn.isVideoMirroringSupported { conn.isVideoMirrored = false }
+        if let conn = v.videoPreviewLayer.connection {
+            if conn.isVideoOrientationSupported {
+                conn.videoOrientation = desiredOrientation
+            }
+            if conn.isVideoMirroringSupported {
+                conn.automaticallyAdjustsVideoMirroring = false
+                conn.isVideoMirrored = false
+            }
         }
 
         // Give SwiftUI access to the layer once
@@ -38,9 +43,14 @@ struct CameraPreviewView: UIViewRepresentable {
     func updateUIView(_ uiView: PreviewUIView, context: Context) {
         uiView.videoPreviewLayer.session = session
 
-        if let conn = uiView.videoPreviewLayer.connection, conn.isVideoOrientationSupported {
-            conn.videoOrientation = desiredOrientation
-            if conn.isVideoMirroringSupported { conn.isVideoMirrored = false }
+        if let conn = uiView.videoPreviewLayer.connection {
+            if conn.isVideoOrientationSupported {
+                conn.videoOrientation = desiredOrientation
+            }
+            if conn.isVideoMirroringSupported {
+                conn.automaticallyAdjustsVideoMirroring = false
+                conn.isVideoMirrored = false
+            }
         }
 
         DispatchQueue.main.async {
