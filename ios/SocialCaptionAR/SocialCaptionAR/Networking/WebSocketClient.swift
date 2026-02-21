@@ -59,21 +59,8 @@ final class WebSocketClient {
     }
 
     private func handle(text: String) {
-        guard let data = text.data(using: .utf8) else { return }
-        do {
-            let ev = try JSONDecoder().decode(CaptionEvent.self, from: data)
-            if ev.type == "caption_event" {
-                onCaptionEvent?(CaptionEvent(
-                    type: ev.type,
-                    t_ms: ev.t_ms,
-                    text: ev.text,
-                    is_final: ev.is_final,
-                    tone: ev.tone,
-                    volume: ev.volume
-                ))
-            }
-        } catch {
-            // ignore non-caption messages for now
-        }
+        guard let data = text.data(using: .utf8),
+              let ev = try? JSONDecoder().decode(CaptionEvent.self, from: data) else { return }
+        onCaptionEvent?(ev)
     }
 }

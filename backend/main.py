@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from backend.src.audio.capture import capture_audio_loop
 from backend.src.stt.elevenlabs_client import run_elevenlabs_client
 from backend.src.tone.classifier import classify_tone
-from backend.src.ws_server.server import broadcast_caption, create_server
+from backend.src.ws_server.server import send_caption, create_server
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,16 +37,8 @@ async def main() -> None:
 
     def on_transcript(text: str, caption_type: str) -> None:
         logger.info("Transcript [%s]: %s", caption_type, text[:80] + ("..." if len(text) > 80 else ""))
-        tone, confidence = classify_tone(text, latest_volume[0])
-        asyncio.create_task(
-            broadcast_caption(
-                text=text,
-                caption_type=caption_type,
-                tone=tone,
-                confidence=confidence,
-                volume=latest_volume[0],
-            )
-        )
+        tone, _ = classify_tone(text, latest_volume[0])
+        asyncio.create_task(send_caption(text, tone, latest_volume[0]))
 
     capture_stop = threading.Event()
     capture_thread = threading.Thread(

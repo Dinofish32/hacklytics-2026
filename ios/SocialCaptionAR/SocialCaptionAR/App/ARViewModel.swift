@@ -27,9 +27,15 @@ final class ARViewModel: ObservableObject {
     private let speakerDetector = MotionSpeakerDetector()
     private let wsClient = WebSocketClient()
 
-    private var speakerHistory = RingBuffer<SpeakerSample>(capacity: 90)
-    private let anchorLatencySeconds: TimeInterval = 0.40
-    @Published var wsURLString: String = "ws://127.0.0.1:8000/ws"
+    // Buffer of active-speaker decisions to handle caption latency
+    private var speakerHistory = RingBuffer<SpeakerSample>(capacity: 90) // ~3s at 30fps
+
+    // Tunables
+    private let anchorLatencySeconds: TimeInterval = 0.40 // anchor captions to who was active ~400ms ago
+
+    // Default WS URL – change to your Mac's local IP when running on a real device
+    // Example: ws://192.168.1.23:8765
+    @Published var wsURLString: String = "ws://127.0.0.1:8765"
 
     // cache latest pose output
     private var latestPoseOutput: VisionPoseTracker.Output = .init(bodyPoints: [], handPoints: [])
@@ -107,13 +113,13 @@ final class ARViewModel: ObservableObject {
     private func handleCaptionEvent(_ ev: CaptionEvent) {
         let now = Date().timeIntervalSince1970
         let anchorTime = now - anchorLatencySeconds
+
         let anchorFaceId = speakerHistory.closest(to: anchorTime)?.faceId ?? self.activeFaceId
 
         self.latestCaption = CaptionBubbleState(
             text: ev.text,
-            tone: ev.toneValue,
-            volume: ev.volumeValue,
-            isFinal: ev.isFinal,
+            tone: Tone(label: ev.tone),
+            volume: ev.volume,
             anchorFaceId: anchorFaceId,
             receivedAt: now
         )

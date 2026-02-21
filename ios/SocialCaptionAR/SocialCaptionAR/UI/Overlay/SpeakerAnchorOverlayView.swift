@@ -24,7 +24,7 @@ struct SpeakerAnchorOverlayView: View {
                 // Empty placeholders for now
                 CaptionBubbleView(
                     text: "",
-                    tone: Tone(label: "", confidence: 0.0, hex: "#9CA3AF"),
+                    tone: Tone(label: "neutral"),
                     volume: 0.0
                 )
                 .opacity(0.85)

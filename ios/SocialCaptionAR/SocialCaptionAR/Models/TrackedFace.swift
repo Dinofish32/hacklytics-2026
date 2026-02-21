@@ -51,7 +51,6 @@ struct CaptionBubbleState {
     let text: String
     let tone: Tone
     let volume: Double
-    let isFinal: Bool
     let anchorFaceId: UUID?
     let receivedAt: TimeInterval
 }
