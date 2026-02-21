@@ -38,7 +38,8 @@ final class VisionPoseTracker {
 
     struct Output {
         let bodies: [BodyPose]
-        let handPoints: [CGPoint] // normalized, bottom-left
+        let handWrists: [CGPoint]   // wrist points from hand pose (for face association)
+        let handPoints: [CGPoint]   // all hand joint points (for debug overlay)
     }
 
     func processFrame(pixelBuffer: CVPixelBuffer,
@@ -55,7 +56,7 @@ final class VisionPoseTracker {
             do {
                 try self.handler.perform([bodyReq, handReq], on: pixelBuffer, orientation: self.orientation)
             } catch {
-                completion(Output(bodies: [], handPoints: []))
+                completion(Output(bodies: [], handWrists: [], handPoints: []))
                 return
             }
 
@@ -80,14 +81,21 @@ final class VisionPoseTracker {
                 }
             }
 
+            var handWrists: [CGPoint] = []
             var handPts: [CGPoint] = []
             if let hands = handReq.results as? [VNHumanHandPoseObservation] {
                 for h in hands.prefix(4) {
-                    let joints: [VNHumanHandPoseObservation.JointName] = [
-                        .wrist,
+                    // Extract wrist separately for face association
+                    if let w = try? h.recognizedPoint(.wrist), w.confidence >= 0.3 {
+                        let wp = CGPoint(x: w.location.x, y: w.location.y)
+                        handWrists.append(wp)
+                        handPts.append(wp)
+                    }
+                    // Finger MCP joints for debug overlay
+                    let fingerJoints: [VNHumanHandPoseObservation.JointName] = [
                         .thumbMP, .indexMCP, .middleMCP, .ringMCP, .littleMCP
                     ]
-                    for j in joints {
+                    for j in fingerJoints {
                         if let p = try? h.recognizedPoint(j), p.confidence >= 0.3 {
                             handPts.append(CGPoint(x: p.location.x, y: p.location.y))
                         }
@@ -95,7 +103,7 @@ final class VisionPoseTracker {
                 }
             }
 
-            completion(Output(bodies: bodiesOut, handPoints: handPts))
+            completion(Output(bodies: bodiesOut, handWrists: handWrists, handPoints: handPts))
         }
     }
 
