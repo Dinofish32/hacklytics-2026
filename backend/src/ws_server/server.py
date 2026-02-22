@@ -61,6 +61,7 @@ async def _dispatch_meeting_payload(payload: dict[str, Any]) -> None:
         return
     try:
         result = _on_meeting_payload(payload)
+        # logger.info("meeting_payload received: %s", payload)
         if inspect.isawaitable(result):
             await result
     except Exception as exc:

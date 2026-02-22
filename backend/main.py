@@ -116,11 +116,11 @@ async def main() -> None:
             last_analyzed_word_bucket[0] = current_bucket
             last_analyzed_text[0] = cleaned_text
 
-        logger.info(
-            "Transcript [%s]: %s",
-            caption_type,
-            cleaned_text[:80] + ("..." if len(cleaned_text) > 80 else "")
-        )
+        # logger.info(
+        #     "Transcript [%s]: %s",
+        #     caption_type,
+        #     cleaned_text[:80] + ("..." if len(cleaned_text) > 80 else "")
+        # )
 
         # Every chunk is broadcast (partial and final), always using latest known tone + latest volume.
         asyncio.create_task(

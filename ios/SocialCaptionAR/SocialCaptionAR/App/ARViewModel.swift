@@ -49,7 +49,12 @@ final class ARViewModel: ObservableObject {
     // cached pose (so face + pose don’t have to finish same moment)
     private var latestPose: VisionPoseTracker.Output = .init(bodies: [], handFingerCentroids: [], handPoints: [])
 
+    private func log(_ message: String) {
+        print("[ARViewModel] \(message)")
+    }
+
     func start() async {
+        log("start() called; starting camera and websocket wiring")
         await camera.start()
 
         // Cache latest camera frame for participant snapshots on meeting stop.
@@ -59,7 +64,10 @@ final class ARViewModel: ObservableObject {
         }
 
         wsClient.onStatus = { [weak self] status in
-            Task { @MainActor in self?.wsStatus = status }
+            Task { @MainActor in
+                self?.wsStatus = status
+                self?.log("WebSocket status update: \(status)")
+            }
         }
 
         wsClient.onCaptionEvent = { [weak self] ev in
@@ -70,6 +78,7 @@ final class ARViewModel: ObservableObject {
     }
 
     func stop() {
+        log("stop() called; stopping camera + websocket")
         camera.stop()
         wsClient.disconnect()
     }
@@ -79,6 +88,7 @@ final class ARViewModel: ObservableObject {
         meetingTranscripts.removeAll()
         meetingStartMs = currentTimestampMs()
         isMeetingRecording = true
+        log("Meeting recording started at ms=\(meetingStartMs ?? 0)")
     }
 
     func stopMeetingRecordingAndSend() async {
@@ -95,23 +105,32 @@ final class ARViewModel: ObservableObject {
             transcripts: meetingTranscripts,
             participants: participants
         )
+        log(
+            "Stopping meeting recording: transcripts=\(meetingTranscripts.count), " +
+            "participants=\(participants.count)"
+        )
 
         do {
             try await wsClient.sendMeetingPayload(payload)
             wsStatus = "Meeting payload sent"
+            log("Meeting payload sent successfully")
         } catch {
             wsStatus = "Meeting payload send failed"
+            log("Meeting payload send failed: \(error.localizedDescription)")
         }
 
         meetingStartMs = nil
         meetingTranscripts.removeAll()
+        log("Meeting recording state reset")
     }
 
     func connectWebSocket() {
         guard let url = URL(string: wsURLString) else {
             wsStatus = "Bad URL"
+            log("connectWebSocket() failed: invalid URL string '\(wsURLString)'")
             return
         }
+        log("Connecting websocket to \(url.absoluteString)")
         wsClient.connect(url: url)
     }
 
@@ -176,6 +195,11 @@ final class ARViewModel: ObservableObject {
             anchorFaceId: anchorFaceId,
             receivedAt: now
         )
+        log(
+            "Caption received: is_final=\(ev.isFinal), text_len=\(ev.text.count), " +
+            "tone=\(tone.label), volume=\(String(format: "%.3f", volume)), " +
+            "anchorFaceId=\(anchorFaceId?.uuidString ?? "nil")"
+        )
 
         // Only committed/final chunks are persisted to the meeting transcript list.
         if isMeetingRecording && ev.isFinal {
@@ -188,6 +212,7 @@ final class ARViewModel: ObservableObject {
                     timestamp_ms: timestampMs
                 )
             )
+            log("Committed transcript appended. running_count=\(meetingTranscripts.count)")
         }
     }
 
@@ -215,6 +240,9 @@ final class ARViewModel: ObservableObject {
                 imageBase64 = cropFaceToBase64JPEG(visionBoundingBox: face.visionBoundingBox)
             } else {
                 imageBase64 = nil
+            }
+            if imageBase64 == nil {
+                log("Participant snapshot missing for speaker_id=\(speakerId)")
             }
             return MeetingParticipantRecord(
                 speaker_id: speakerId,

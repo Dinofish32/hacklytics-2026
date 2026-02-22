@@ -83,8 +83,8 @@ async def _send_audio(
             }
             await ws.send(json.dumps(msg))
             chunks_sent += 1
-            if chunks_sent == 20:
-                logger.info("Audio streaming to ElevenLabs (20 chunks sent)")
+            # if chunks_sent == 20:
+            #     logger.info("Audio streaming to ElevenLabs (20 chunks sent)")
         except asyncio.TimeoutError:
             continue
         except asyncio.CancelledError:
