@@ -9,6 +9,8 @@ import Foundation
 import SwiftUI
 import AVFoundation
 import Combine
+import CoreImage
+import UIKit
 
 @MainActor
 final class ARViewModel: ObservableObject {
@@ -18,6 +20,7 @@ final class ARViewModel: ObservableObject {
     @Published var latestCaption: CaptionBubbleState? = nil
     @Published var wsStatus: String = "Disconnected"
     @Published var isMirrored: Bool = true
+    @Published var isMeetingRecording: Bool = false
 
     // Pose data for debug overlay
     @Published var poseBodies: [VisionPoseTracker.BodyPose] = []
@@ -34,7 +37,14 @@ final class ARViewModel: ObservableObject {
 
     private var speakerHistory = RingBuffer<SpeakerSample>(capacity: 90)
     private let anchorLatencySeconds: TimeInterval = 0.40
-    @Published var wsURLString: String = "ws://127.0.0.1:8000/ws"
+    // Websocket endpoint for realtime captions + final meeting upload.
+    // - Simulator on same Mac: ws://127.0.0.1:8765
+    // - Physical iPhone: replace 127.0.0.1 with your Mac's LAN IP (same Wi-Fi).
+    @Published var wsURLString: String = "ws://10.90.187.115:8765"
+    private var meetingStartMs: Int64?
+    private var meetingTranscripts: [MeetingTranscriptRecord] = []
+    private var latestFrameImage: CIImage?
+    private let ciContext = CIContext(options: nil)
 
     // cached pose (so face + pose don’t have to finish same moment)
     private var latestPose: VisionPoseTracker.Output = .init(bodies: [], handFingerCentroids: [], handPoints: [])
@@ -42,6 +52,7 @@ final class ARViewModel: ObservableObject {
     func start() async {
         await camera.start()
 
+        // Cache latest camera frame for participant snapshots on meeting stop.
         camera.onFrame = { [weak self] pixelBuffer, _ in
             guard let self else { return }
             self.handleFrame(pixelBuffer: pixelBuffer)
@@ -63,6 +74,39 @@ final class ARViewModel: ObservableObject {
         wsClient.disconnect()
     }
 
+    func startMeetingRecording() {
+        // Recording session state lives in-memory for one meeting.
+        meetingTranscripts.removeAll()
+        meetingStartMs = currentTimestampMs()
+        isMeetingRecording = true
+    }
+
+    func stopMeetingRecordingAndSend() async {
+        guard isMeetingRecording else { return }
+
+        isMeetingRecording = false
+        let startedAtMs = meetingStartMs ?? currentTimestampMs()
+        let endedAtMs = currentTimestampMs()
+        // Build one face snapshot per known participant ID at stop time.
+        let participants = buildParticipantSnapshotRecords()
+        let payload = MeetingPayloadEvent(
+            started_at_ms: startedAtMs,
+            ended_at_ms: endedAtMs,
+            transcripts: meetingTranscripts,
+            participants: participants
+        )
+
+        do {
+            try await wsClient.sendMeetingPayload(payload)
+            wsStatus = "Meeting payload sent"
+        } catch {
+            wsStatus = "Meeting payload send failed"
+        }
+
+        meetingStartMs = nil
+        meetingTranscripts.removeAll()
+    }
+
     func connectWebSocket() {
         guard let url = URL(string: wsURLString) else {
             wsStatus = "Bad URL"
@@ -72,6 +116,8 @@ final class ARViewModel: ObservableObject {
     }
 
     private func handleFrame(pixelBuffer: CVPixelBuffer) {
+        latestFrameImage = CIImage(cvPixelBuffer: pixelBuffer)
+
         // Update pose cache (and publish for debug)
         poseTracker.processFrame(pixelBuffer: pixelBuffer) { [weak self] out in
             guard let self else { return }
@@ -118,14 +164,90 @@ final class ARViewModel: ObservableObject {
         let now = Date().timeIntervalSince1970
         let anchorTime = now - anchorLatencySeconds
         let anchorFaceId = speakerHistory.closest(to: anchorTime)?.faceId ?? self.activeFaceId
+        let timestampMs = Int64(ev.t_ms ?? Int(now * 1000))
+        let tone = ev.toneValue
+        let volume = ev.volumeValue
 
         self.latestCaption = CaptionBubbleState(
             text: ev.text,
-            tone: ev.toneValue,
-            volume: ev.volumeValue,
+            tone: tone,
+            volume: volume,
             isFinal: ev.isFinal,
             anchorFaceId: anchorFaceId,
             receivedAt: now
         )
+
+        // Only committed/final chunks are persisted to the meeting transcript list.
+        if isMeetingRecording && ev.isFinal {
+            meetingTranscripts.append(
+                MeetingTranscriptRecord(
+                    speaker_id: anchorFaceId?.uuidString,
+                    text: ev.text,
+                    tone: tone.label,
+                    volume: volume,
+                    timestamp_ms: timestampMs
+                )
+            )
+        }
+    }
+
+    private func currentTimestampMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
+    }
+
+    private func buildParticipantSnapshotRecords() -> [MeetingParticipantRecord] {
+        // IDs come from committed transcript speakers, plus currently tracked faces
+        // so we do not miss participants that spoke near stop time.
+        var speakerIds = Set<String>()
+        for transcript in meetingTranscripts {
+            if let speakerId = transcript.speaker_id {
+                speakerIds.insert(speakerId)
+            }
+        }
+        for face in faces {
+            speakerIds.insert(face.id.uuidString)
+        }
+
+        let facesById = Dictionary(uniqueKeysWithValues: faces.map { ($0.id.uuidString, $0) })
+        return speakerIds.sorted().map { speakerId in
+            let imageBase64: String?
+            if let face = facesById[speakerId] {
+                imageBase64 = cropFaceToBase64JPEG(visionBoundingBox: face.visionBoundingBox)
+            } else {
+                imageBase64 = nil
+            }
+            return MeetingParticipantRecord(
+                speaker_id: speakerId,
+                image_base64_jpeg: imageBase64
+            )
+        }
+    }
+
+    private func cropFaceToBase64JPEG(visionBoundingBox: CGRect) -> String? {
+        // Vision face boxes are normalized and bottom-left origin.
+        // CIImage crop coordinates are pixel-based in image space.
+        guard let frameImage = latestFrameImage else { return nil }
+        let frameExtent = frameImage.extent
+        if frameExtent.isEmpty { return nil }
+
+        let cropRect = CGRect(
+            x: frameExtent.minX + (visionBoundingBox.minX * frameExtent.width),
+            y: frameExtent.minY + (visionBoundingBox.minY * frameExtent.height),
+            width: visionBoundingBox.width * frameExtent.width,
+            height: visionBoundingBox.height * frameExtent.height
+        ).intersection(frameExtent).integral
+
+        if cropRect.width < 2 || cropRect.height < 2 {
+            return nil
+        }
+
+        let croppedImage = frameImage.cropped(to: cropRect)
+        guard let cgImage = ciContext.createCGImage(croppedImage, from: croppedImage.extent) else {
+            return nil
+        }
+        guard let jpegData = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.75) else {
+            return nil
+        }
+        return jpegData.base64EncodedString()
     }
 }

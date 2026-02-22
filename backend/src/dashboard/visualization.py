@@ -4,6 +4,7 @@ Run with: streamlit run backend.src.dashboard.visualization
 """
 import os
 import sys
+import logging
 from pathlib import Path
 import streamlit as st
 import pandas as pd
@@ -18,14 +19,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 # Load .env from backend directory
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
+logger = logging.getLogger(__name__)
 
 
-st.set_page_config(
-    page_title="Snowflake Dashboard",
-    page_icon="❄️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+def handle_meeting_payload_placeholder(payload: dict) -> None:
+    """Temporary sink for meeting payloads sent from iOS.
+
+    This is intentionally lightweight until dashboard persistence/processing is added.
+    """
+    transcripts = payload.get("transcripts", [])
+    participants = payload.get("participants", [])
+    started_at = payload.get("started_at_ms")
+    ended_at = payload.get("ended_at_ms")
+
+    logger.info(
+        "Received meeting_payload: %s transcripts, %s participants, started_at=%s ended_at=%s",
+        len(transcripts),
+        len(participants),
+        started_at,
+        ended_at,
+    )
 
 
 @st.cache_resource(ttl=300)
@@ -127,6 +140,13 @@ def render_charts(df: pd.DataFrame) -> None:
 
 
 def main() -> None:
+    st.set_page_config(
+        page_title="Snowflake Dashboard",
+        page_icon="❄️",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
     st.title("❄️ Snowflake Data Dashboard")
     st.markdown("Explore and visualize your Snowflake data.")
 

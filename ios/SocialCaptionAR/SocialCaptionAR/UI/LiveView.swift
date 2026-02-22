@@ -7,7 +7,6 @@ struct LiveView: View {
     @State private var previewLayer: AVCaptureVideoPreviewLayer? = nil
     @State private var showSettings = false
     @State private var debugOverlayEnabled = false
-    @State private var isMeetingRecording = false
     @State private var showMeetingSavedBanner = false
 
     var body: some View {
@@ -22,6 +21,8 @@ struct LiveView: View {
                 SpeakerAnchorOverlayView(
                     faces: vm.faces,
                     activeFaceId: vm.activeFaceId,
+                    // Full current websocket chunk (no concatenation) is rendered here.
+                    latestCaption: vm.latestCaption,
                     previewLayer: layer
                 )
             }
@@ -54,7 +55,7 @@ struct LiveView: View {
                     Button {
                         toggleMeetingRecording()
                     } label: {
-                        if isMeetingRecording {
+                        if vm.isMeetingRecording {
                             Image(systemName: "record.circle.fill")
                                 .font(.system(size: 24, weight: .bold))
                                 .foregroundStyle(.red)
@@ -108,13 +109,13 @@ struct LiveView: View {
     }
 
     private func toggleMeetingRecording() {
-        if isMeetingRecording {
-            isMeetingRecording = false
-            withAnimation {
-                showMeetingSavedBanner = true
-            }
-
+        if vm.isMeetingRecording {
             Task {
+                // Stop meeting capture and send final meeting_payload over websocket.
+                await vm.stopMeetingRecordingAndSend()
+                withAnimation {
+                    showMeetingSavedBanner = true
+                }
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 await MainActor.run {
                     withAnimation {
@@ -123,7 +124,8 @@ struct LiveView: View {
                 }
             }
         } else {
-            isMeetingRecording = true
+            // Start collecting committed transcript rows for this meeting.
+            vm.startMeetingRecording()
         }
     }
 }

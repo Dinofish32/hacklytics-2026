@@ -1,4 +1,12 @@
-"""ElevenLabs Realtime STT WebSocket client."""
+"""ElevenLabs Realtime STT transport client.
+
+This module only handles audio transport and transcript events:
+- `_send_audio`: streams PCM chunks from the capture queue.
+- `_receive_transcripts`: emits partial/committed transcripts through callback.
+
+Business logic (tone cadence, websocket broadcast schema, recording semantics)
+is intentionally kept in `backend/main.py`.
+"""
 
 import asyncio
 import json
@@ -7,7 +15,6 @@ from typing import Any, AsyncIterator, Callable, Optional
 
 from websockets.asyncio.client import connect
 from websockets.asyncio.client import ClientConnection
-from backend.src.tone_analysis.client import sentiment
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +28,7 @@ async def run_elevenlabs_client(
     on_transcript: Callable[[str, str], None],
     stop_event: asyncio.Event,
 ) -> None:
-    """Connect to ElevenLabs Realtime STT, send audio, emit transcripts.
+    """Connect to ElevenLabs Realtime STT, send audio, and emit transcripts.
 
     Args:
         api_key: ElevenLabs API key.
@@ -35,6 +42,7 @@ async def run_elevenlabs_client(
     )
     additional_headers = {"xi-api-key": api_key}
 
+    # Reconnect loop: keep trying while app is running.
     while not stop_event.is_set():
         try:
             async with connect(url, additional_headers=additional_headers) as ws:
@@ -58,7 +66,7 @@ async def _send_audio(
     audio_queue: asyncio.Queue[tuple[bytes, float]],
     stop_event: asyncio.Event,
 ) -> None:
-    """Send audio chunks to ElevenLabs."""
+    """Send microphone PCM chunks to ElevenLabs websocket."""
     import base64
 
     chunks_sent = 0
@@ -66,6 +74,7 @@ async def _send_audio(
         try:
             pcm_bytes, _ = await asyncio.wait_for(audio_queue.get(), timeout=0.5)
             audio_b64 = base64.b64encode(pcm_bytes).decode("ascii")
+            # ElevenLabs expects base64-encoded PCM payloads.
             msg = {
                 "message_type": "input_audio_chunk",
                 "audio_base_64": audio_b64,
@@ -90,7 +99,12 @@ async def _receive_transcripts(
     on_transcript: Callable[[str, str], None],
     stop_event: asyncio.Event,
 ) -> None:
-    """Receive and dispatch transcript events from ElevenLabs."""
+    """Receive transcript events and forward them via callback.
+
+    Callback contract:
+    - `on_transcript(text, "partial")` for live partial updates
+    - `on_transcript(text, "final")` for committed transcript boundaries
+    """
     try:
         async for raw in ws:
             if stop_event.is_set():
@@ -105,12 +119,13 @@ async def _receive_transcripts(
             elif mt == "partial_transcript":
                 text = data.get("text", "")
                 if text.strip():
+                    # Partial text is full-current-chunk style (not incremental diffs).
                     on_transcript(text.strip(), "partial")
             elif mt == "committed_transcript":
                 text = data.get("text", "")
                 if text.strip():
+                    # Committed transcript marks a finalized segment.
                     on_transcript(text.strip(), "final")
-                    print(sentiment(text.strip()))
             elif mt in (
                 "error",
                 "auth_error",
