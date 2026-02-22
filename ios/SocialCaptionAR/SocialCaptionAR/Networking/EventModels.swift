@@ -8,8 +8,8 @@
 import Foundation
 import SwiftUI
 
-struct CaptionEvent: Codable {
-    let type: String
+struct CaptionEvent: Decodable {
+    let type: String?
     let t_ms: Int?
     let text: String
     let is_final: Bool?
@@ -21,7 +21,8 @@ struct CaptionEvent: Codable {
         if let t = tone { return Tone(label: t.label, confidence: t.confidence, hex: t.color_hex) }
         return Tone(label: "neutral", confidence: 0.5, hex: "#9CA3AF")
     }
-    var volumeValue: Double { volume ?? 0.0 }
+    /// Volume clamped to 0..1 for VolumeBarView
+    var volumeValue: Double { min(max(volume ?? 0.0, 0.0), 1.0) }
 }
 
 struct ToneDTO: Codable {
