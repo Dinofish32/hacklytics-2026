@@ -5,6 +5,7 @@ Run with: streamlit run backend.src.dashboard.visualization
 from backend.src.tone_analysis.client import summarize
 import os
 import sys
+import logging
 from pathlib import Path
 
 # Ensure repo root is on path for backend.src imports
@@ -23,13 +24,26 @@ from backend.src.tone_analysis.client import get_connection
 # Load .env from backend directory
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
+logger = logging.getLogger(__name__)
 
 
-st.set_page_config(
-    page_title="Data Dashboard (powered by Snowflake)",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+def handle_meeting_payload_placeholder(payload: dict) -> None:
+    """Temporary sink for meeting payloads sent from iOS.
+
+    This is intentionally lightweight until dashboard persistence/processing is added.
+    """
+    transcripts = payload.get("transcripts", [])
+    participants = payload.get("participants", [])
+    started_at = payload.get("started_at_ms")
+    ended_at = payload.get("ended_at_ms")
+
+    logger.info(
+        "Received meeting_payload: %s transcripts, %s participants, started_at=%s ended_at=%s",
+        len(transcripts),
+        len(participants),
+        started_at,
+        ended_at,
+    )
 
 
 @st.cache_resource(ttl=300)
