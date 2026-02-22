@@ -57,11 +57,11 @@ final class MotionSpeakerDetector {
     private let wArms: Double = 0.001             // negligible tie-breaker
     private let wMouth: Double = 0.0005           // negligible tie-breaker
 
-    // Hysteresis
-    private let switchHoldDuration: TimeInterval = 0.45
-    private let lockDuration: TimeInterval = 0.90
-    private let winRatio: Double = 1.25
-    private let winMargin: Double = 0.003
+    // Hysteresis — kept minimal since the EMA already smooths the signal
+    private let switchHoldDuration: TimeInterval = 0.05   // ~1 frame confirmation
+    private let lockDuration: TimeInterval = 0.15         // brief lock after switch
+    private let winRatio: Double = 1.05                   // 5% lead is enough
+    private let winMargin: Double = 0.001
 
     // Body/hand → face association thresholds (normalized coords)
     private let bodyAssignMaxHorizDist: Double = 0.25

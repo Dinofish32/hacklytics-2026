@@ -4,6 +4,7 @@ Requires SNOWFLAKE.CORTEX_USER role in Snowflake.
 """
 import json
 import os
+import re
 from contextlib import contextmanager
 import snowflake.connector
 from dotenv import load_dotenv
@@ -141,9 +142,38 @@ def complete(
         return str(raw)
 
 
-def sentiment(text: str) -> dict[str, str]:
+def _normalize_tone_label(raw_label: str) -> str:
+    """Normalize model output into app-supported tone labels."""
+    normalized = re.sub(r"[^a-z]+", "", raw_label.lower())
+    tone_map = {
+        "angry": "angry",
+        "frustrated": "frustrated",
+        "sad": "sad",
+        "happy": "happy",
+        "excited": "excited",
+        "surprised": "surprised",
+        "calm": "calm",
+        "neutral": "neutral",
+        "positive": "happy",
+        "negative": "frustrated",
+    }
+    return tone_map.get(normalized, "neutral")
+
+
+def sentiment(text: str) -> dict[str, str | float]:
     """
-    Returns a tone classification of the text: angry, happy, sad, calm, etc.
+    Classify tone for transcript text.
+
+    Returns:
+        {
+            "text": <original_text>,
+            "label": <normalized_tone_label>,
+            "confidence": <0..1 float>
+        }
+
+    Notes:
+    - Uses Cortex COMPLETE with a strict single-label prompt.
+    - Falls back to neutral on any upstream failure.
     """
     prompt = f"""
     Analyze the following text and classify its emotional tone. 
@@ -154,9 +184,13 @@ def sentiment(text: str) -> dict[str, str]:
     Return only the single label. Don't include any other text or explanation.
     """
     
-    tone_label = complete(prompt, model="snowflake-arctic", temperature=0.0)
-    
-    return {"text": text, "tone": tone_label}
+    try:
+        tone_label = complete(prompt, model="snowflake-arctic", temperature=0.0)
+        label = _normalize_tone_label(tone_label)
+        confidence = 0.85 if label != "neutral" else 0.6
+        return {"text": text, "label": label, "confidence": confidence}
+    except Exception:
+        return {"text": text, "label": "neutral", "confidence": 0.5}
 
 
 def translate(
