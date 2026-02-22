@@ -11,33 +11,33 @@ import AVFoundation
 struct SpeakerAnchorOverlayView: View {
     let faces: [TrackedFace]
     let activeFaceId: UUID?
+    let latestCaption: CaptionBubbleState?
     let previewLayer: AVCaptureVideoPreviewLayer
 
-    // Placeholder tone for when you want the UI to always render
-    private let defaultTone = Tone(label: "neutral", confidence: 0.0, hex: "#9CA3AF")
+    private let defaultTone = Tone(label: “neutral”, confidence: 0.0, hex: “#9CA3AF”)
 
     var body: some View {
         if let id = activeFaceId,
            let face = faces.first(where: { $0.id == id }) {
 
-            // IMPORTANT: Vision bbox is bottom-left origin.
-            // Convert to metadataOutputRect (top-left origin) before converting to layer rect.
             let metaRect = CGRect(
                 x: face.visionBoundingBox.minX,
                 y: 1.0 - face.visionBoundingBox.maxY,
                 width: face.visionBoundingBox.width,
                 height: face.visionBoundingBox.height
             )
-
             let rect = previewLayer.layerRectConverted(fromMetadataOutputRect: metaRect)
 
+            // Use live caption data when available, otherwise show placeholder
+            let text = latestCaption?.text ?? “”
+            let tone = latestCaption?.tone ?? defaultTone
+            let volume = latestCaption?.volume ?? 0.0
+
             VStack(spacing: 10) {
-                // If you want “always visible”, keep this placeholder.
-                // Once WS events are flowing, you’ll replace these with vm.latestCaption values.
                 CaptionBubbleView(
-                    text: "",
-                    tone: defaultTone,
-                    volume: 0.0
+                    text: text,
+                    tone: tone,
+                    volume: volume
                 )
                 .opacity(0.85)
             }

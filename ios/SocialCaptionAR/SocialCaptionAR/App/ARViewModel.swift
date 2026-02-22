@@ -34,7 +34,7 @@ final class ARViewModel: ObservableObject {
 
     private var speakerHistory = RingBuffer<SpeakerSample>(capacity: 90)
     private let anchorLatencySeconds: TimeInterval = 0.40
-    @Published var wsURLString: String = "ws://127.0.0.1:8000/ws"
+    @Published var wsURLString: String = "ws://127.0.0.1:8765"
 
     // cached pose (so face + pose don’t have to finish same moment)
     private var latestPose: VisionPoseTracker.Output = .init(bodies: [], handFingerCentroids: [], handPoints: [])
