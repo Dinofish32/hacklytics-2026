@@ -37,7 +37,7 @@ final class ARViewModel: ObservableObject {
     @Published var wsURLString: String = "ws://127.0.0.1:8000/ws"
 
     // cached pose (so face + pose don’t have to finish same moment)
-    private var latestPose: VisionPoseTracker.Output = .init(bodies: [], handWrists: [], handPoints: [])
+    private var latestPose: VisionPoseTracker.Output = .init(bodies: [], handFingerCentroids: [], handPoints: [])
 
     func start() async {
         await camera.start()
@@ -94,7 +94,7 @@ final class ARViewModel: ObservableObject {
                 let out = self.speakerDetector.update(
                     faces: tracked,
                     bodies: self.latestPose.bodies,
-                    handWrists: self.latestPose.handWrists,
+                    handFingerCentroids: self.latestPose.handFingerCentroids,
                     now: now
                 )
 

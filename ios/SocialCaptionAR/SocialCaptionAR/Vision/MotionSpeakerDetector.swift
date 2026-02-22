@@ -71,7 +71,7 @@ final class MotionSpeakerDetector {
 
     func update(faces: [TrackedFace],
                 bodies: [VisionPoseTracker.BodyPose],
-                handWrists: [CGPoint],
+                handFingerCentroids: [CGPoint],
                 now: TimeInterval) -> Output {
 
         // Prune stale per-face state
@@ -123,19 +123,19 @@ final class MotionSpeakerDetector {
             }
         }
 
-        // --- Associate hand wrists to faces ---
+        // --- Associate hands (with visible fingers) to faces ---
         var faceHandCount: [UUID: Int] = [:]
 
-        for wrist in handWrists {
+        for fingerCenter in handFingerCentroids {
             var bestId: UUID? = nil
             var bestDist = Double.greatestFiniteMagnitude
 
             for fi in faceInfos {
-                let horizDist = abs(Double(wrist.x - fi.center.x))
+                let horizDist = abs(Double(fingerCenter.x - fi.center.x))
                 guard horizDist < handAssignMaxHorizDist else { continue }
 
-                // Wrist should be at or below face level
-                let vertGap = Double(fi.center.y - wrist.y)
+                // Hand should be at or below face level
+                let vertGap = Double(fi.center.y - fingerCenter.y)
                 guard vertGap > -Double(fi.bbox.height) else { continue }
 
                 if horizDist < bestDist {
